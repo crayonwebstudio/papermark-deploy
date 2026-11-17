@@ -49,13 +49,22 @@ ARG NEXTAUTH_URL=https://paper.woodwolfdigital.com
 ARG NEXT_PUBLIC_BASE_URL=https://paper.woodwolfdigital.com
 ARG NEXT_PUBLIC_UPLOAD_TRANSPORT=s3
 ARG NEXT_PUBLIC_HANKO_TENANT_ID=dummy
+# next.config.mjs reads these two unconditionally at build time (redirect
+# "/" host match and /services headers host match). If either is undefined,
+# its `has` item becomes {"type":"host"} and `next build` fails with
+# "invalid `has` item". Defaults are the self-host app host; Coolify
+# build-time vars override them.
+ARG NEXT_PUBLIC_APP_BASE_HOST=paper.woodwolfdigital.com
+ARG NEXT_PUBLIC_WEBHOOK_BASE_HOST=paper.woodwolfdigital.com
 ENV NEXT_TELEMETRY_DISABLED=1 \
     NODE_ENV=production \
     NEXTAUTH_URL=${NEXTAUTH_URL} \
     NEXT_PUBLIC_BASE_URL=${NEXT_PUBLIC_BASE_URL} \
     NEXT_PUBLIC_MARKETING_URL=${NEXT_PUBLIC_BASE_URL} \
     NEXT_PUBLIC_UPLOAD_TRANSPORT=${NEXT_PUBLIC_UPLOAD_TRANSPORT} \
-    NEXT_PUBLIC_HANKO_TENANT_ID=${NEXT_PUBLIC_HANKO_TENANT_ID}
+    NEXT_PUBLIC_HANKO_TENANT_ID=${NEXT_PUBLIC_HANKO_TENANT_ID} \
+    NEXT_PUBLIC_APP_BASE_HOST=${NEXT_PUBLIC_APP_BASE_HOST} \
+    NEXT_PUBLIC_WEBHOOK_BASE_HOST=${NEXT_PUBLIC_WEBHOOK_BASE_HOST}
 
 # Dummy server-only values so `next build` can collect page data without a
 # live database or real secrets. Real values come from the runtime env.
