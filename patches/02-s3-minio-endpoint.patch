@@ -1,0 +1,98 @@
+Patch 02: honour NEXT_PRIVATE_UPLOAD_ENDPOINT (MinIO) in the S3 clients,
+with path-style addressing.
+Applies to: papermark/papermark main @ ed19717e,
+files ee/features/storage/s3-store.ts and lib/files/aws-client.ts
+
+Why: config.ts reads NEXT_PRIVATE_UPLOAD_ENDPOINT, but the tus upload store
+(MultiRegionS3Store, used for every document upload) builds its S3 clients
+with only bucket, region, and credentials. It never passes the endpoint, so
+uploads go to the real AWS S3 endpoint no matter what the env var says.
+The presigned-URL helpers in aws-client.ts do pass the endpoint, but without
+forcePathStyle, so MinIO gets virtual-host style URLs (<bucket>.minio:9000)
+which fail without bucket DNS.
+
+This patch adds the endpoint plus forcePathStyle: true to the S3 client
+constructions. The endpoint is only added when set, so an AWS S3 deployment
+(no endpoint) behaves exactly as before.
+---
+diff --git a/ee/features/storage/s3-store.ts b/ee/features/storage/s3-store.ts
+--- a/ee/features/storage/s3-store.ts
++++ b/ee/features/storage/s3-store.ts
+@@ -29,7 +29,13 @@ export class MultiRegionS3Store extends S3Store {
+     // Create S3 client config for super() call (omit endpoint if empty/undefined)
+     const superS3Config: any = {
+       bucket: euConfig.bucket,
+       region: euConfig.region,
++      // Self-host: pass the configured endpoint (MinIO) and use path-style
++      // addressing, otherwise uploads go to real AWS S3 and MinIO gets
++      // virtual-host style URLs that do not resolve.
++      ...(euConfig.endpoint
++        ? { endpoint: euConfig.endpoint, forcePathStyle: true }
++        : {}),
+       credentials: {
+         accessKeyId: euConfig.accessKeyId,
+         secretAccessKey: euConfig.secretAccessKey,
+@@ -44,7 +50,10 @@ export class MultiRegionS3Store extends S3Store {
+     // Create EU S3 client configuration (omit endpoint if empty/undefined)
+     const euS3Config: any = {
+       bucket: euConfig.bucket,
+       region: euConfig.region,
++      ...(euConfig.endpoint
++        ? { endpoint: euConfig.endpoint, forcePathStyle: true }
++        : {}),
+       credentials: {
+         accessKeyId: euConfig.accessKeyId,
+         secretAccessKey: euConfig.secretAccessKey,
+@@ -61,7 +70,10 @@ export class MultiRegionS3Store extends S3Store {
+       // Create US S3 client configuration (omit endpoint if empty/undefined)
+       const usS3Config: any = {
+         bucket: this.usConfig.bucket,
+         region: this.usConfig.region,
++        ...(this.usConfig.endpoint
++          ? { endpoint: this.usConfig.endpoint, forcePathStyle: true }
++          : {}),
+         credentials: {
+           accessKeyId: this.usConfig.accessKeyId,
+           secretAccessKey: this.usConfig.secretAccessKey,
+diff --git a/lib/files/aws-client.ts b/lib/files/aws-client.ts
+--- a/lib/files/aws-client.ts
++++ b/lib/files/aws-client.ts
+@@ -8,9 +8,12 @@ export const getS3Client = (storageRegion?: string) => {
+ 
+   const config = getStorageConfig(storageRegion);
+ 
+   return new S3Client({
+     endpoint: config.endpoint || undefined,
++    // Self-host: MinIO needs path-style addressing; without it the SDK
++    // builds virtual-host style URLs (<bucket>.<endpoint-host>) that fail.
++    ...(config.endpoint ? { forcePathStyle: true } : {}),
+     region: config.region,
+     credentials: {
+       accessKeyId: config.accessKeyId,
+       secretAccessKey: config.secretAccessKey,
+@@ -26,9 +29,12 @@ export const getS3ClientForTeam = async (teamId: string) => {
+ 
+   const config = await getTeamStorageConfigById(teamId);
+ 
+   return new S3Client({
+     endpoint: config.endpoint || undefined,
++    // Self-host: MinIO needs path-style addressing; without it the SDK
++    // builds virtual-host style URLs (<bucket>.<endpoint-host>) that fail.
++    ...(config.endpoint ? { forcePathStyle: true } : {}),
+     region: config.region,
+     credentials: {
+       accessKeyId: config.accessKeyId,
+       secretAccessKey: config.secretAccessKey,
+@@ -99,9 +105,12 @@ export const getTeamS3ClientAndConfig = async (teamId: string) => {
+ 
+   const config = await getTeamStorageConfigById(teamId);
+ 
+   const client = new S3Client({
+     endpoint: config.endpoint || undefined,
++    // Self-host: MinIO needs path-style addressing; without it the SDK
++    // builds virtual-host style URLs (<bucket>.<endpoint-host>) that fail.
++    ...(config.endpoint ? { forcePathStyle: true } : {}),
+     region: config.region,
+     credentials: {
+       accessKeyId: config.accessKeyId,
+       secretAccessKey: config.secretAccessKey,

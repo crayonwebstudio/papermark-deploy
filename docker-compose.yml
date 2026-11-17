@@ -1,0 +1,164 @@
+# Papermark on Coolify (paper.woodwolfdigital.com)
+#
+# Services: papermark (Next.js, built from official source at a pinned
+# commit, see Dockerfile), postgres:16-alpine, minio (S3-compatible
+# storage via pgsty/silo, the maintained MinIO fork; upstream minio/minio
+# was deleted from Docker Hub Sep 2026, so the official images no longer
+# pull), minio-init (one-shot bucket creation).
+#
+# Coolify conventions used here (checked against live Coolify apps in this
+# workspace, e.g. whatscrm and woodwolf-erpnext):
+# - No `ports:` published: Coolify/Traefik routes the domains set in the
+#   Coolify UI to the app service. Set paper.woodwolfdigital.com on the
+#   `papermark` service and s3.paper.woodwolfdigital.com on the `minio`
+#   service in Coolify; both get TLS automatically.
+# - No Traefik labels and no Swarm `deploy.placement` blocks: Coolify
+#   handles routing and scheduling.
+# - No Redis service: the app uses Upstash REST Redis, which a local
+#   redis container cannot serve. The tus locker is patched to a no-op
+#   when Upstash is unset (see patches/04), and rate limiting fails open.
+# - Named volumes for all state. Never run `docker compose down -v`.
+# - One-shot services use `deploy.restart_policy.condition: none`
+#   (same pattern as the ERPNext stack in this workspace).
+#
+# All secrets come from Coolify env vars. See .env.example and DEPLOY-NOTES.md.
+
+services:
+  papermark:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXTAUTH_URL: ${NEXTAUTH_URL:-https://paper.woodwolfdigital.com}
+        NEXT_PUBLIC_BASE_URL: ${NEXT_PUBLIC_BASE_URL:-https://paper.woodwolfdigital.com}
+        NEXT_PUBLIC_UPLOAD_TRANSPORT: ${NEXT_PUBLIC_UPLOAD_TRANSPORT:-s3}
+        NEXT_PUBLIC_HANKO_TENANT_ID: ${NEXT_PUBLIC_HANKO_TENANT_ID:-dummy}
+    image: papermark-woodwolf:ed19717e
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-3000}
+      HOSTNAME: ${HOSTNAME:-0.0.0.0}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-https://paper.woodwolfdigital.com}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:?NEXTAUTH_SECRET is required}
+      NEXT_PUBLIC_BASE_URL: ${NEXT_PUBLIC_BASE_URL:-https://paper.woodwolfdigital.com}
+      NEXT_PUBLIC_MARKETING_URL: ${NEXT_PUBLIC_MARKETING_URL:-https://paper.woodwolfdigital.com}
+      NEXT_PUBLIC_APP_BASE_HOST: ${NEXT_PUBLIC_APP_BASE_HOST:-paper.woodwolfdigital.com}
+      NEXT_PUBLIC_UPLOAD_TRANSPORT: ${NEXT_PUBLIC_UPLOAD_TRANSPORT:-s3}
+      POSTGRES_PRISMA_URL: ${POSTGRES_PRISMA_URL:?POSTGRES_PRISMA_URL is required}
+      POSTGRES_PRISMA_URL_NON_POOLING: ${POSTGRES_PRISMA_URL_NON_POOLING:?POSTGRES_PRISMA_URL_NON_POOLING is required}
+      POSTGRES_PRISMA_SHADOW_URL: ${POSTGRES_PRISMA_SHADOW_URL:?POSTGRES_PRISMA_SHADOW_URL is required}
+      NEXT_PRIVATE_UPLOAD_BUCKET: ${NEXT_PRIVATE_UPLOAD_BUCKET:-papermark}
+      NEXT_PRIVATE_ARCHIVE_BUCKET: ${NEXT_PRIVATE_ARCHIVE_BUCKET:-papermark-archive}
+      NEXT_PRIVATE_UPLOAD_REGION: ${NEXT_PRIVATE_UPLOAD_REGION:-us-east-1}
+      NEXT_PRIVATE_UPLOAD_ACCESS_KEY_ID: ${NEXT_PRIVATE_UPLOAD_ACCESS_KEY_ID:?NEXT_PRIVATE_UPLOAD_ACCESS_KEY_ID is required}
+      NEXT_PRIVATE_UPLOAD_SECRET_ACCESS_KEY: ${NEXT_PRIVATE_UPLOAD_SECRET_ACCESS_KEY:?NEXT_PRIVATE_UPLOAD_SECRET_ACCESS_KEY is required}
+      NEXT_PRIVATE_UPLOAD_ENDPOINT: ${NEXT_PRIVATE_UPLOAD_ENDPOINT:-https://s3.paper.woodwolfdigital.com}
+      NEXT_PRIVATE_UPLOAD_DISTRIBUTION_HOST: ${NEXT_PRIVATE_UPLOAD_DISTRIBUTION_HOST:-}
+      NEXT_PRIVATE_UPLOAD_DISTRIBUTION_DOMAIN: ${NEXT_PRIVATE_UPLOAD_DISTRIBUTION_DOMAIN:-}
+      NEXT_PRIVATE_UPLOAD_DISTRIBUTION_KEY_ID: ${NEXT_PRIVATE_UPLOAD_DISTRIBUTION_KEY_ID:-}
+      NEXT_PRIVATE_UPLOAD_DISTRIBUTION_KEY_CONTENTS: ${NEXT_PRIVATE_UPLOAD_DISTRIBUTION_KEY_CONTENTS:-}
+      NEXT_PRIVATE_DOCUMENT_PASSWORD_KEY: ${NEXT_PRIVATE_DOCUMENT_PASSWORD_KEY:?NEXT_PRIVATE_DOCUMENT_PASSWORD_KEY is required}
+      NEXT_PRIVATE_VERIFICATION_SECRET: ${NEXT_PRIVATE_VERIFICATION_SECRET:?NEXT_PRIVATE_VERIFICATION_SECRET is required}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?INTERNAL_API_KEY is required}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      LINKEDIN_CLIENT_ID: ${LINKEDIN_CLIENT_ID:-}
+      LINKEDIN_CLIENT_SECRET: ${LINKEDIN_CLIENT_SECRET:-}
+      HANKO_API_KEY: ${HANKO_API_KEY:-}
+      NEXT_PUBLIC_HANKO_TENANT_ID: ${NEXT_PUBLIC_HANKO_TENANT_ID:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      UPSTASH_REDIS_REST_URL: ${UPSTASH_REDIS_REST_URL:-}
+      UPSTASH_REDIS_REST_TOKEN: ${UPSTASH_REDIS_REST_TOKEN:-}
+      UPSTASH_REDIS_REST_LOCKER_URL: ${UPSTASH_REDIS_REST_LOCKER_URL:-}
+      UPSTASH_REDIS_REST_LOCKER_TOKEN: ${UPSTASH_REDIS_REST_LOCKER_TOKEN:-}
+      TINYBIRD_TOKEN: ${TINYBIRD_TOKEN:-}
+      TINYBIRD_BASE_URL: ${TINYBIRD_BASE_URL:-}
+      QSTASH_TOKEN: ${QSTASH_TOKEN:-}
+      QSTASH_CURRENT_SIGNING_KEY: ${QSTASH_CURRENT_SIGNING_KEY:-}
+      QSTASH_NEXT_SIGNING_KEY: ${QSTASH_NEXT_SIGNING_KEY:-}
+      TRIGGER_SECRET_KEY: ${TRIGGER_SECRET_KEY:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+      PROJECT_ID_VERCEL: ${PROJECT_ID_VERCEL:-}
+      TEAM_ID_VERCEL: ${TEAM_ID_VERCEL:-}
+      AUTH_BEARER_TOKEN: ${AUTH_BEARER_TOKEN:-}
+    # Pin the public MinIO hostname to the Docker host gateway so the app
+    # reaches MinIO through Traefik on https://s3.paper.woodwolfdigital.com
+    # instead of depending on hairpin NAT. Remove if it ever causes trouble
+    # and rely on public DNS instead.
+    extra_hosts:
+      - "${MINIO_PUBLIC_HOST:-s3.paper.woodwolfdigital.com}:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-papermark}
+      POSTGRES_USER: ${POSTGRES_USER:-papermark}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - papermark-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-papermark} -d ${POSTGRES_DB:-papermark}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  minio:
+    image: pgsty/silo:RELEASE.2026-11-12T00-00-00Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    volumes:
+      - papermark-minio-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  minio-init:
+    image: pgsty/silo:RELEASE.2026-11-12T00-00-00Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    deploy:
+      restart_policy:
+        condition: none
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+      MINIO_BUCKET: ${NEXT_PRIVATE_UPLOAD_BUCKET:-papermark}
+      MINIO_ARCHIVE_BUCKET: ${NEXT_PRIVATE_ARCHIVE_BUCKET:-papermark-archive}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$MINIO_BUCKET"
+        mc mb --ignore-existing "local/$MINIO_ARCHIVE_BUCKET"
+        echo "MinIO buckets ready: $MINIO_BUCKET, $MINIO_ARCHIVE_BUCKET"
+
+volumes:
+  papermark-postgres-data:
+  papermark-minio-data:
