@@ -1,7 +1,7 @@
 diff --git a/lib/hanko.ts b/lib/hanko.ts
 --- a/lib/hanko.ts
 +++ b/lib/hanko.ts
-@@ -1,17 +1,16 @@
+@@ -1,16 +1,15 @@
  import { tenant } from "@teamhanko/passkeys-next-auth-provider";
 
 -if (!process.env.HANKO_API_KEY || !process.env.NEXT_PUBLIC_HANKO_TENANT_ID) {
@@ -29,7 +29,6 @@ diff --git a/lib/hanko.ts b/lib/hanko.ts
 +    : null;
 
  export default hanko;
-
 diff --git a/lib/auth/auth-options.ts b/lib/auth/auth-options.ts
 --- a/lib/auth/auth-options.ts
 +++ b/lib/auth/auth-options.ts
