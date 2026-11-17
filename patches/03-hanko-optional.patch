@@ -1,21 +1,9 @@
-Patch 03: make Hanko (passkeys) optional instead of breaking all auth.
-Applies to: papermark/papermark main @ ed19717e,
-files lib/hanko.ts and lib/auth/auth-options.ts
-
-Why: lib/hanko.ts throws at import time when HANKO_API_KEY or
-NEXT_PUBLIC_HANKO_TENANT_ID is unset, and lib/auth/auth-options.ts imports
-that module, so every /api/auth/* request throws and NO login method works,
-not just passkeys. The .env.example comment ("required for signup with
-passkey") understates this. With this patch, passkey login is simply not
-offered when Hanko is not configured, and Google / email login keep working.
-If Hanko keys are set, behaviour is unchanged.
----
 diff --git a/lib/hanko.ts b/lib/hanko.ts
 --- a/lib/hanko.ts
 +++ b/lib/hanko.ts
-@@ -1,16 +1,15 @@
+@@ -1,17 +1,16 @@
  import { tenant } from "@teamhanko/passkeys-next-auth-provider";
- 
+
 -if (!process.env.HANKO_API_KEY || !process.env.NEXT_PUBLIC_HANKO_TENANT_ID) {
 -  // These need to be set in .env.local
 -  // You get them from the Passkey API itself, e.g. when first setting up the server.
@@ -39,12 +27,13 @@ diff --git a/lib/hanko.ts b/lib/hanko.ts
 +        tenantId: process.env.NEXT_PUBLIC_HANKO_TENANT_ID!,
 +      })
 +    : null;
- 
+
  export default hanko;
+
 diff --git a/lib/auth/auth-options.ts b/lib/auth/auth-options.ts
 --- a/lib/auth/auth-options.ts
 +++ b/lib/auth/auth-options.ts
-@@ -101,14 +101,23 @@ export const authOptions: NextAuthOptions = {
+@@ -84,14 +84,23 @@
          }
        },
      }),

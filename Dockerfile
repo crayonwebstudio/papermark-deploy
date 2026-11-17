@@ -39,7 +39,8 @@ RUN git init -q \
     && git checkout -q FETCH_HEAD \
     && git log --oneline -1
 
-# Patches that make current main work self-hosted (see patches/*.patch headers).
+# Patches that make current main work self-hosted (see AUDIT.md section 3
+# for why each patch exists; the patch files are canonical unified diffs).
 COPY patches ./patches
 RUN git apply --check patches/*.patch && git apply --verbose patches/*.patch
 

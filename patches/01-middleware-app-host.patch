@@ -1,25 +1,9 @@
-Patch 01: treat the app's own host as an app host, not a visitor custom domain.
-Applies to: papermark/papermark main @ ed19717e, file middleware.ts
-
-Why: upstream isCustomDomain() hardcodes papermark.com / papermark.io /
-localhost / *.vercel.app. Any other host (including paper.woodwolfdigital.com)
-is treated as a visitor custom link domain, so DomainMiddleware redirects "/"
-to https://www.papermark.com and rewrites every other path to
-/view/domains/<host><path>. The dashboard and login never render.
-There is no env var to override this upstream (NEXT_PUBLIC_APP_BASE_HOST is
-not read anywhere in the code), so the host must be exempted in code.
-
-The exempt host is derived from NEXTAUTH_URL, which is already a required
-env var. Note: middleware env is inlined at build time, so NEXTAUTH_URL
-must be set as a Docker build arg as well as a runtime var (the Dockerfile
-does this).
----
 diff --git a/middleware.ts b/middleware.ts
 --- a/middleware.ts
 +++ b/middleware.ts
-@@ -17,6 +17,23 @@ function isAnalyticsPath(path: string) {
+@@ -20,6 +20,23 @@
  }
- 
+
  function isCustomDomain(host: string) {
 +  // Self-host: the app's own public host (from NEXTAUTH_URL) is not a
 +  // visitor custom link domain. Upstream hardcodes papermark.com /

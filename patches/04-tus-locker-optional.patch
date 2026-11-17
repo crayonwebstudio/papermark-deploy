@@ -1,23 +1,10 @@
-Patch 04: make the tus upload locker optional (no-op without Upstash Redis).
-Applies to: papermark/papermark main @ ed19717e,
-files lib/redis.ts and lib/files/tus-redis-locker.ts
-
-Why: the tus upload routes (pages/api/file/tus and pages/api/file/tus-viewer)
-build a RedisLocker from lockerRedisClient, which is an @upstash/redis REST
-client. A local redis:7 container cannot serve Upstash REST calls, and with
-no Upstash configured every upload fails at lock acquisition. With this
-patch, an unset UPSTASH_REDIS_REST_LOCKER_URL makes the locker a no-op.
-That is only safe with a single app replica (the draft runs 1 replica) and
-low concurrency, which fits this deployment. If Upstash locker vars ARE set,
-behaviour is unchanged and the real locker is used.
----
 diff --git a/lib/redis.ts b/lib/redis.ts
 --- a/lib/redis.ts
 +++ b/lib/redis.ts
-@@ -7,7 +7,13 @@ export const redis = new Redis({
+@@ -6,10 +6,16 @@
    token: process.env.UPSTASH_REDIS_REST_TOKEN as string,
  });
- 
+
 -export const lockerRedisClient = new Redis({
 -  url: process.env.UPSTASH_REDIS_REST_LOCKER_URL as string,
 -  token: process.env.UPSTASH_REDIS_REST_LOCKER_TOKEN as string,
@@ -32,37 +19,32 @@ diff --git a/lib/redis.ts b/lib/redis.ts
 +      token: process.env.UPSTASH_REDIS_REST_LOCKER_TOKEN as string,
 +    })
 +  : null;
+
+ // Create a new ratelimiter, that allows 10 requests per 10 seconds by default
+ export const ratelimit = (
 diff --git a/lib/files/tus-redis-locker.ts b/lib/files/tus-redis-locker.ts
 --- a/lib/files/tus-redis-locker.ts
 +++ b/lib/files/tus-redis-locker.ts
-@@ -25,14 +25,15 @@ import { Redis } from "@upstash/redis";
- 
+@@ -24,12 +24,13 @@
+
  interface RedisLockerOptions {
    acquireLockTimeout?: number;
 -  redisClient: Redis;
 +  // Self-host: null when no Upstash locker is configured; the locker no-ops.
 +  redisClient: Redis | null;
  }
- 
+
  export class RedisLocker implements Locker {
    timeout: number;
 -  redisClient: Redis;
 +  redisClient: Redis | null;
- 
+
    constructor(options: RedisLockerOptions) {
      this.timeout = options.acquireLockTimeout ?? 1000 * 30; // default: 30 seconds
-     this.redisClient = options.redisClient;
-   }
-@@ -60,30 +60,37 @@ class RedisLock implements Lock {
-   protected async acquireLock(
-     id: string,
-     requestRelease: RequestRelease,
-     signal: AbortSignal,
-   ): Promise<boolean> {
-     if (signal.aborted) {
+@@ -74,22 +75,29 @@
        return false;
      }
- 
+
 +    // Self-host: no Upstash locker configured (single replica). Skip
 +    // locking entirely instead of failing every upload.
 +    const redisClient = this.locker.redisClient;
@@ -76,7 +58,7 @@ diff --git a/lib/files/tus-redis-locker.ts b/lib/files/tus-redis-locker.ts
        nx: true,
        px: this.timeout,
      });
- 
+
      if (lock) {
        // Register a release request flag in Redis
 -      await this.locker.redisClient.set(`requestRelease:${lockKey}`, "true", {
@@ -85,18 +67,16 @@ diff --git a/lib/files/tus-redis-locker.ts b/lib/files/tus-redis-locker.ts
        });
        return true;
      }
- 
+
      // Check if the release was requested
 -    const releaseRequestStr: string | null = await this.locker.redisClient.get(
 +    const releaseRequestStr: string | null = await redisClient.get(
        `requestRelease:${lockKey}`,
      );
      if (releaseRequestStr === "true") {
-       await requestRelease?.();
-     }
-@@ -105,12 +105,17 @@ class RedisLock implements Lock {
+@@ -108,6 +116,11 @@
    }
- 
+
    async unlock(): Promise<void> {
 +    // Self-host: no locker configured, nothing to release.
 +    if (!this.locker.redisClient) {
@@ -106,9 +86,3 @@ diff --git a/lib/files/tus-redis-locker.ts b/lib/files/tus-redis-locker.ts
      const lockKey = `tus-lock-${this.id}`;
      const lockExists = await this.locker.redisClient.del(lockKey);
      if (!lockExists) {
-       throw new Error("Releasing an unlocked lock!");
-     }
- 
-     // Clean up the request release entry
-     await this.locker.redisClient.del(`requestRelease:${lockKey}`);
-   }
